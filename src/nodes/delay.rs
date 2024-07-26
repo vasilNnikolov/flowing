@@ -11,10 +11,6 @@ impl Delay {
     }
 }
 impl Node for Delay {
-    fn delayed_processing(&self) -> bool {
-        true
-    }
-
     fn get_output(&self, id: OutputId) -> f64 {
         match id.0 {
             0 => self.value.1,

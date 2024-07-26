@@ -11,10 +11,6 @@ impl Variable {
     }
 }
 impl Node for Variable {
-    fn delayed_processing(&self) -> bool {
-        false
-    }
-
     fn get_output(&self, id: OutputId) -> f64 {
         match id.0 {
             0 => self.value,

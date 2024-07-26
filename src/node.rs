@@ -12,9 +12,6 @@ pub struct OutputId(pub u32);
 
 /// Abstract processing node with inputs and outputs.
 pub trait Node {
-    /// Returns whether node introduces processing delay.
-    fn delayed_processing(&self) -> bool;
-
     /// Returns output value.
     fn get_output(&self, id: OutputId) -> f64;
 
@@ -31,9 +28,6 @@ pub trait Node {
     fn set_input(&mut self, id: InputId, value: f64);
 }
 impl<N: Node + ?Sized> Node for Box<N> {
-    fn delayed_processing(&self) -> bool {
-        self.as_ref().delayed_processing()
-    }
     fn get_output(&self, id: OutputId) -> f64 {
         self.as_ref().get_output(id)
     }

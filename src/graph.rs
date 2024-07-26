@@ -8,15 +8,14 @@ use std::{
 pub struct Graph<N: Node> {
     /// Connections in graph.
     connections: Vec<Connection>,
-
-    /// Internal counter for next node id.
     next_node_id: NodeId,
-
+    // /// Internal counter for next node id.
+    // next_node_id: NodeId,
     /// Nodes in graph, indexed by unique id.
     nodes: HashMap<NodeId, N>,
-
-    /// Node processing order (result of topologial sort).
+    // /// Node processing order (result of topologial sort).
     processing_order: LinkedList<NodeId>,
+    output: (NodeId, OutputId),
 }
 impl<N: Node> Graph<N> {
     /// Creates new empty graph.
@@ -25,6 +24,7 @@ impl<N: Node> Graph<N> {
             connections: Vec::new(),
             next_node_id: NodeId(0),
             nodes: HashMap::new(),
+            output: (NodeId(0), OutputId(0)),
             processing_order: LinkedList::new(),
         }
     }
@@ -44,24 +44,13 @@ impl<N: Node> Graph<N> {
 
         // Add connection, update processing order (check for undelayed cycles).
         self.connections.push(connection);
-        match self.calc_processing_order() {
-            Err(error) => {
-                // Revert change (most likely an undelayed cycle was introduced).
-                self.connections.pop();
-                Err(error)
-            }
-            Ok(order) => {
-                self.processing_order = order;
-                Ok(connection)
-            }
-        }
+        Ok(connection)
     }
 
     /// Adds a node to the graph.
     pub fn add_node(&mut self, node: N) -> NodeId {
         let id = self.next_node_id;
         self.nodes.insert(id, node);
-        self.processing_order = self.calc_processing_order().unwrap();
         self.next_node_id.0 += 1;
         id
     }
@@ -69,15 +58,9 @@ impl<N: Node> Graph<N> {
     /// Determines processing order (new topological sorting, can fail due to undelayed cycles).
     fn calc_processing_order(&self) -> Result<LinkedList<NodeId>, GraphError> {
         // Calculate in-degree of nodes.
-        let mut in_degree: HashMap<NodeId, usize> = HashMap::new();
-        for &node in self.nodes.keys() {
-            in_degree.insert(node, 0);
-        }
+        let mut in_degree: HashMap<NodeId, usize> = self.nodes.keys().map(|node_id| (*node_id, 0)).collect();
         for connection in self.connections.iter() {
-            // Nodes do not depend on nodes that introduce delay.
-            if !self.get_node(connection.source_node).unwrap().delayed_processing() {
-                in_degree.entry(connection.target_node).and_modify(|d| *d += 1);
-            }
+            in_degree.entry(connection.target_node).and_modify(|d| *d += 1);
         }
 
         // Find nodes with in-degree 0.
@@ -90,28 +73,16 @@ impl<N: Node> Graph<N> {
 
         // Topological sort.
         let mut order: LinkedList<NodeId> = LinkedList::new();
-        let mut delayed: LinkedList<NodeId> = LinkedList::new();
         while !queue.is_empty() {
             let node = queue.pop_front().unwrap();
-            if !self.get_node(node).unwrap().delayed_processing() {
-                // Reduce in-degree of connected nodes, add to queue once in-degree == 0.
-                for connection in self.connections.iter() {
-                    if connection.source_node == node {
-                        in_degree.entry(connection.target_node).and_modify(|d| *d -= 1);
-                        if *in_degree.get(&connection.target_node).unwrap() == 0 {
-                            queue.push_back(connection.target_node);
-                        }
-                    }
+            // Reduce in-degree of connected nodes, add to queue once in-degree == 0.
+            for connection in self.connections.iter().filter(|conn| conn.source_node == node) {
+                in_degree.entry(connection.target_node).and_modify(|d| *d -= 1);
+                if *in_degree.get(&connection.target_node).unwrap() == 0 {
+                    queue.push_back(connection.target_node);
                 }
-                order.push_back(node);
-            } else {
-                delayed.push_back(node);
             }
-        }
-
-        // Nodes that introduce delay are processed after all other nodes.
-        while !delayed.is_empty() {
-            order.push_back(delayed.pop_front().unwrap());
+            order.push_back(node);
         }
 
         // Number of nodes in order won't match if an undelayed cycle exists.
@@ -144,50 +115,16 @@ impl<N: Node> Graph<N> {
 
     /// Processes nodes in graph.
     pub fn process(&mut self) {
-        // First pass.
-        for &node in self.processing_order.iter() {
+        for &node_id in self.processing_order.iter() {
             // Populate inputs.
-            for connection in self.connections.iter() {
-                if connection.target_node == node {
-                    let value = self.nodes.get(&connection.source_node).unwrap().get_output(connection.source_output);
-                    self.nodes.get_mut(&connection.target_node).unwrap().set_input(connection.target_input, value);
-                }
+            for connection in self.connections.iter().filter(|conn| conn.target_node == node_id) {
+                let value = self.nodes.get(&connection.source_node).unwrap().get_output(connection.source_output);
+                self.nodes.get_mut(&connection.target_node).unwrap().set_input(connection.target_input, value);
             }
 
-            // Process non-delayed nodes.
-            let node = self.nodes.get_mut(&node).unwrap();
-            if !node.delayed_processing() {
-                node.process();
-            }
+            let node = self.nodes.get_mut(&node_id).unwrap();
+            node.process();
         }
-
-        // Second pass.
-        for &node in self.processing_order.iter() {
-            // Process delayed nodes.
-            let node = self.nodes.get_mut(&node).unwrap();
-            if node.delayed_processing() {
-                node.process();
-            }
-        }
-    }
-
-    /// Removes a connection.
-    pub fn remove_connection(&mut self, connection: Connection) -> Result<Connection, GraphError> {
-        if self.connections.contains(&connection) {
-            self.connections.retain(|&c| c != connection);
-            self.processing_order = self.calc_processing_order().unwrap();
-            Ok(connection)
-        } else {
-            Err(GraphError::ConnectionNotExists(connection))
-        }
-    }
-
-    /// Removes a node by id.
-    pub fn remove_node(&mut self, id: NodeId) -> Result<N, GraphError> {
-        let node = self.nodes.remove(&id).ok_or(GraphError::NodeNotExists(id))?;
-        self.connections = self.connections.iter().cloned().filter(|&c| self.validate_connection(c).is_ok()).collect();
-        self.processing_order = self.calc_processing_order().unwrap();
-        Ok(node)
     }
 
     /// Validates a connection (whether nodes and input/output exist).
