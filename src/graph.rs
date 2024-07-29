@@ -1,4 +1,4 @@
-use crate::{Connection, InputId, Node, NodeId, OutputId};
+use crate::{ConnType, Connection, InputId, Node, NodeId, OutputId};
 use std::{
     collections::{HashMap, LinkedList},
     fmt,
@@ -49,9 +49,8 @@ impl<N: Node> Graph<N> {
 
     /// Adds a node to the graph.
     pub fn add_node(&mut self, node: N) -> NodeId {
-        let id = self.next_node_id;
+        let id = NodeId(self.nodes.len() as u32);
         self.nodes.insert(id, node);
-        self.next_node_id.0 += 1;
         id
     }
 
@@ -63,7 +62,7 @@ impl<N: Node> Graph<N> {
             in_degree.entry(connection.target_node).and_modify(|d| *d += 1);
         }
 
-        // Find nodes with in-degree 0.
+        // Find nodes with in-degree 0, i.e. input nodes
         let mut queue: LinkedList<NodeId> = LinkedList::new();
         for (&node, &degree) in in_degree.iter() {
             if degree == 0 {
@@ -76,10 +75,12 @@ impl<N: Node> Graph<N> {
         while !queue.is_empty() {
             let node = queue.pop_front().unwrap();
             // Reduce in-degree of connected nodes, add to queue once in-degree == 0.
-            for connection in self.connections.iter().filter(|conn| conn.source_node == node) {
-                in_degree.entry(connection.target_node).and_modify(|d| *d -= 1);
-                if *in_degree.get(&connection.target_node).unwrap() == 0 {
-                    queue.push_back(connection.target_node);
+            for conn in
+                self.connections.iter().filter(|conn| conn.source_node == node && conn.conn_type == ConnType::Pipe)
+            {
+                in_degree.entry(conn.target_node).and_modify(|d| *d -= 1);
+                if *in_degree.get(&conn.target_node).unwrap() == 0 {
+                    queue.push_back(conn.target_node);
                 }
             }
             order.push_back(node);
@@ -117,9 +118,12 @@ impl<N: Node> Graph<N> {
     pub fn process(&mut self) {
         for &node_id in self.processing_order.iter() {
             // Populate inputs.
-            for connection in self.connections.iter().filter(|conn| conn.target_node == node_id) {
-                let value = self.nodes.get(&connection.source_node).unwrap().get_output(connection.source_output);
-                self.nodes.get_mut(&connection.target_node).unwrap().set_input(connection.target_input, value);
+            for conn in self.connections.iter().filter(|conn| conn.target_node == node_id) {
+                let value = match conn.conn_type {
+                    ConnType::Pipe => self.nodes.get(&conn.source_node).unwrap().get_output(conn.source_output),
+                    ConnType::Feedback(option_value) => option_value.unwrap_or(0.0f64),
+                };
+                self.nodes.get_mut(&conn.target_node).unwrap().set_input(conn.target_input, value);
             }
 
             let node = self.nodes.get_mut(&node_id).unwrap();

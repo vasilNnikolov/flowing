@@ -1,12 +1,12 @@
 use crate::{InputId, NodeId, OutputId};
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ConnType {
     Pipe,
-    Feedback,
+    Feedback(Option<f64>), // the last value that was passed
 }
 /// Graph edge between source node output and target node input.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Connection {
     pub conn_type: ConnType,
     pub source_node: NodeId,
