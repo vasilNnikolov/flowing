@@ -8,23 +8,19 @@ use std::{
 pub struct Graph<N: Node> {
     /// Connections in graph.
     connections: Vec<Connection>,
-    next_node_id: NodeId,
-    // /// Internal counter for next node id.
-    // next_node_id: NodeId,
     /// Nodes in graph, indexed by unique id.
     nodes: HashMap<NodeId, N>,
     // /// Node processing order (result of topologial sort).
     processing_order: LinkedList<NodeId>,
-    output: (NodeId, OutputId),
+    // output: (NodeId, OutputId),
 }
 impl<N: Node> Graph<N> {
     /// Creates new empty graph.
     pub fn new() -> Self {
         Graph {
             connections: Vec::new(),
-            next_node_id: NodeId(0),
             nodes: HashMap::new(),
-            output: (NodeId(0), OutputId(0)),
+            // output: (NodeId(0), OutputId(0)),
             processing_order: LinkedList::new(),
         }
     }
